@@ -16,6 +16,8 @@ from .strings cimport StringStore, hash_string
 from .compat import basestring_, path2str
 from .errors import Errors
 from . import util
+import boto3
+from os.path import isfile
 
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
@@ -53,6 +55,7 @@ cdef class Vectors:
     cdef public object name
     cdef public object data
     cdef public object key2row
+    cdef public object s3_config
     cdef cppset[int] _unset
 
     def __init__(self, *, shape=None, data=None, keys=None, name=None):
@@ -381,14 +384,25 @@ cdef class Vectors:
                     self._unset.erase(self._unset.find(row))
 
         def load_keys(path):
-            if path.exists():
+            if self.s3_config:
+                keys = numpy.load(boto3.client('s3').get_object(
+                                    Bucket=self.s3_config['Bucket_keys'],
+                                    Key=self.s3_config['Key_keys'])['Body']._raw_stream)
+                for i, key in enumerate(keys):
+                    self.add(key, row=i)
+
+            elif path.exists():
                 keys = numpy.load(str(path))
                 for i, key in enumerate(keys):
                     self.add(key, row=i)
 
         def load_vectors(path):
             xp = Model.ops.xp
-            if path.exists():
+            if self.s3_config:
+                self.data = xp.load(boto3.client('s3').get_object(
+                                    Bucket=self.s3_config['Bucket_vectors'],
+                                    Key=self.s3_config['Key_vectors'])['Body']._raw_stream)
+            elif path.exists():
                 self.data = xp.load(str(path))
 
         serializers = OrderedDict((
