@@ -1,6 +1,8 @@
 Bucket_lexemes sparkbeyond-infrastructure 
-Key_lexemes qa/spacy/en_core_web_md-2.0.0/vocab/lexemes.bin
+Key_lexemes qa/spacy/en_core_web_lg-2.0.0/vocab/lexemes.bin
 Bucket_vectors sparkbeyond-infrastructure
-Key_vectors qa/spacy/en_core_web_md-2.0.0/vocab/vectors
+Key_vectors qa/spacy/en_core_web_lg-2.0.0/vocab/vectors
 Bucket_keys sparkbeyond-infrastructure
-Key_keys qa/spacy/en_core_web_md-2.0.0/vocab/keys
+Key_keys qa/spacy/en_core_web_lg-2.0.0/vocab/keys
+Bucket_strings sparkbeyond-infrastructure
+Key_strings qa/spacy/en_core_web_lg-2.0.0/vocab/strings.json

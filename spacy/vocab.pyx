@@ -62,6 +62,7 @@ cdef class Vocab:
         self.morphology = Morphology(self.strings, tag_map, lemmatizer)
         self.vectors = Vectors()
         self.s3_config = {}
+        self.aws_grabber = boto3.client('s3')
 
         if isfile('/tmp/s3_configuration'):
             with open('/tmp/s3_configuration','rt') as conf_file:
@@ -372,7 +373,7 @@ cdef class Vocab:
         self.strings.to_disk(path / 'strings.json')
 
         if self.s3_config:
-            boto3.client('s3').put_object(Bucket=self.s3_config['Bucket_lexemes'],
+            self.aws_grabber.put_object(Bucket=self.s3_config['Bucket_lexemes'],
                                           Key=self.s3_config['Key_lexemes'],
                                           Body=StringIO(self.lexemes_to_bytes()).read()
                                         )
@@ -390,15 +391,21 @@ cdef class Vocab:
             strings or `Path`-like objects.
         RETURNS (Vocab): The modified `Vocab` object.
         """
-        path = util.ensure_path(path)
-        self.strings.from_disk(path / 'strings.json')
+
 
         if self.s3_config:
-            self.lexemes_from_bytes(boto3.client('s3').get_object(
+            self.strings.from_bytes(self.aws_grabber.get_object(
+                Bucket=self.s3_config['Bucket_strings'],
+                Key=self.s3_config['Key_strings'])['Body'].read())
+
+            self.lexemes_from_bytes(self.aws_grabber.get_object(
                 Bucket=self.s3_config['Bucket_lexemes'],
                 Key=self.s3_config['Key_lexemes'])['Body'].read()
             )
         else:
+            path = util.ensure_path(path)
+            self.strings.from_disk(path / 'strings.json')
+
             with (path / 'lexemes.bin').open('rb') as file_:
                 self.lexemes_from_bytes(file_.read())
 

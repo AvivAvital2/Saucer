@@ -34,6 +34,7 @@ cdef class Vocab:
     cdef public object lex_attr_getters
     cdef public object cfg
     cdef public object s3_config
+    cdef public object aws_grabber
 
     cdef const LexemeC* get(self, Pool mem, unicode string) except NULL
     cdef const LexemeC* get_by_orth(self, Pool mem, attr_t orth) except NULL
