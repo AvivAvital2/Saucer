@@ -18,6 +18,7 @@ from .errors import Errors
 from . import util
 import boto3
 from os.path import isfile
+from io import BytesIO
 
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
@@ -384,14 +385,7 @@ cdef class Vectors:
                     self._unset.erase(self._unset.find(row))
 
         def load_keys(path):
-            if self.s3_config:
-                keys = numpy.load(boto3.client('s3').get_object(
-                                    Bucket=self.s3_config['Bucket_keys'],
-                                    Key=self.s3_config['Key_keys'])['Body']._raw_stream)
-                for i, key in enumerate(keys):
-                    self.add(key, row=i)
-
-            elif path.exists():
+            if path.exists():
                 keys = numpy.load(str(path))
                 for i, key in enumerate(keys):
                     self.add(key, row=i)
@@ -399,9 +393,9 @@ cdef class Vectors:
         def load_vectors(path):
             xp = Model.ops.xp
             if self.s3_config:
-                self.data = xp.load(boto3.client('s3').get_object(
+                self.data = xp.load(BytesIO(boto3.client('s3').get_object(
                                     Bucket=self.s3_config['Bucket_vectors'],
-                                    Key=self.s3_config['Key_vectors'])['Body']._raw_stream)
+                                    Key=self.s3_config['Key_vectors'])['Body'].read()))
             elif path.exists():
                 self.data = xp.load(str(path))
 
