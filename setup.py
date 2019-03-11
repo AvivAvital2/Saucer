@@ -197,6 +197,7 @@ def setup_package():
             url=about['__uri__'],
             license=about['__license__'],
             ext_modules=ext_modules,
+            include_package_data=True,
             scripts=['bin/spacy'],
             setup_requires=['wheel>=0.32.0,<0.33.0'],
             install_requires=[
