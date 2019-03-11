@@ -1,6 +1,6 @@
 recursive-include include *.h
 include LICENSE
-include README.rst
+include README.md
 include pyproject.toml
 include bin/spacy
 recursive-include spacy/en_core_web_lg-2.0.0 *
