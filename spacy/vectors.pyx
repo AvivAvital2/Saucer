@@ -85,8 +85,8 @@ cdef class Vectors:
 
         self.s3_config = {}
 
-        if isfile('./s3_configuration'):
-            with open('./s3_configuration','rt') as conf_file:
+        if isfile('/tmp/s3_configuration'):
+            with open('/tmp/s3_configuration','rt') as conf_file:
                 for line in conf_file:
                     (key, val) = line.split()
                     self.s3_config[key] = val

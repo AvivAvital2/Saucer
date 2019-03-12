@@ -6,10 +6,11 @@ Note that a slow connection can greatly affect the performance
 Quite similar to the native spaCy example:
 ```python
 import spacy
-from os.path import dirname, join
 
-spacy.util.set_data_path(dirname(spacy.__file__))
-nlp = spacy.load(join(dirname(spacy.__file__), 'en_core_web_lg-2.0.0'))
+#Initialize connection with S3, where prefix contains 'en_core_web_lg-2.0.0'
+spacy.init_s3_connection('s3_bucket', 's3_prefix')
+spacy.util.set_data_path()
+nlp = spacy.load()
 
 # Process whole documents
 text = (u"When Sebastian Thrun started working on self-driving cars at "

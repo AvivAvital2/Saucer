@@ -3,5 +3,4 @@ include LICENSE
 include README.md
 include pyproject.toml
 include bin/spacy
-include spacy/s3_configuration
 recursive-include spacy/en_core_web_lg-2.0.0 *
