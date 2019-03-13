@@ -211,10 +211,7 @@ def setup_package():
                 'dill>=0.2,<0.3',
                 'regex==2018.01.10',
                 'requests>=2.13.0,<3.0.0',
-                'pathlib==1.0.1; python_version < "3.4"',
-                'boto',
-                'boto3',
-                'botocore'],
+                'pathlib==1.0.1; python_version < "3.4"'],
             extras_require={
                 'cuda': ['cupy>=4.0'],
                 'cuda80': ['cupy-cuda80>=4.0', 'thinc_gpu_ops>=0.0.3,<0.1.0'],
