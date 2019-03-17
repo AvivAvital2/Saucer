@@ -19,6 +19,9 @@ from . import util
 import boto3
 from os.path import isfile
 from io import BytesIO
+import StringIO
+from cStringIO import StringIO as c_StringIO
+from sys import getsizeof
 
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
@@ -390,14 +393,25 @@ cdef class Vectors:
                 for i, key in enumerate(keys):
                     self.add(key, row=i)
 
+
         def load_vectors(path):
             xp = Model.ops.xp
+
             if self.s3_config:
-                self.data = xp.load(BytesIO(boto3.client('s3').get_object(
-                                    Bucket=self.s3_config['Bucket_vectors'],
-                                    Key=self.s3_config['Key_vectors'])['Body'].read()))
+                aws_data = c_StringIO()
+                boto3.client('s3').download_fileobj(
+                    Bucket=self.s3_config['Bucket_vectors'],
+                    Key=self.s3_config['Key_vectors'],
+                    Fileobj=aws_data
+                )
+
+                self.data = xp.lib.npyio.format.read_array(c_StringIO(aws_data.getvalue()))
+                aws_data.close()
+
             elif path.exists():
                 self.data = xp.load(str(path))
+
+
 
         serializers = OrderedDict((
             ('key2row', load_key2row),

@@ -20,18 +20,16 @@ def init_s3_connection(bucket_name, s3_prefix, model_name=model):
 
     model_path = ''.join([s3_prefix, model_name])
 
-    buckets = ['lexemes', 'vectors', 'keys', 'strings']
+    locations = {'lexemes': '/vocab/lexemes.bin',
+                    'vectors': '/vocab/vectors',
+                    'keys': '/vocab/keys',
+                    'strings': '/vocab/strings.json',
+                    'tagger': '/tagger/model'}
 
-    keys = ['/vocab/lexemes.bin',
-            '/vocab/vectors',
-            '/vocab/keys',
-            '/vocab/strings.json']
-
-    with open('/tmp/s3_configuration','w') as f:
-        zipper = zip(buckets,[''.join([model_path,key]) for key in keys])
-        for bucket in buckets:
+    with open('/tmp/s3_configuration', 'w') as f:
+        for bucket in locations.keys():
             f.write('Bucket_{0} {1}\n'.format(bucket, bucket_name))
-            f.write('Key_{0}\n'.format(' '.join(zipper.pop(0))))
+            f.write('Key_{0} {1}\n'.format(bucket, ''.join([model_path,locations[bucket]])))
 
 
 def load(name=join(dirname(realpath(__file__)),model), **overrides):

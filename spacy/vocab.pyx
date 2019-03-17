@@ -5,7 +5,8 @@ from __future__ import unicode_literals
 import numpy
 import dill
 import boto3
-from cStringIO import StringIO
+from cStringIO import StringIO as c_StringIO
+from io import BytesIO, StringIO
 from os.path import isfile
 
 from collections import OrderedDict
@@ -375,7 +376,7 @@ cdef class Vocab:
         if self.s3_config:
             self.aws_grabber.put_object(Bucket=self.s3_config['Bucket_lexemes'],
                                           Key=self.s3_config['Key_lexemes'],
-                                          Body=StringIO(self.lexemes_to_bytes()).read()
+                                          Body=c_StringIO(self.lexemes_to_bytes()).read()
                                         )
         else:
             with (path / 'lexemes.bin').open('wb') as file_:
@@ -394,14 +395,18 @@ cdef class Vocab:
 
 
         if self.s3_config:
+            aws_data = BytesIO()
+            self.aws_grabber.download_fileobj(
+                Bucket=self.s3_config['Bucket_lexemes'],
+                Key=self.s3_config['Key_lexemes'],
+                Fileobj=aws_data)
+
+            self.lexemes_from_bytes(aws_data.read())
+
             self.strings.from_bytes(self.aws_grabber.get_object(
                 Bucket=self.s3_config['Bucket_strings'],
                 Key=self.s3_config['Key_strings'])['Body'].read())
 
-            self.lexemes_from_bytes(self.aws_grabber.get_object(
-                Bucket=self.s3_config['Bucket_lexemes'],
-                Key=self.s3_config['Key_lexemes'])['Body'].read()
-            )
         else:
             path = util.ensure_path(path)
             self.strings.from_disk(path / 'strings.json')

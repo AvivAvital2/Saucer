@@ -8,9 +8,12 @@ cimport numpy as np
 import cytoolz
 from collections import OrderedDict
 import ujson
+import boto3
 
 from .util import msgpack
 from .util import msgpack_numpy
+from os.path import isfile
+
 
 from thinc.api import chain
 from thinc.v2v import Affine, SELU, Softmax
@@ -411,6 +414,14 @@ class Tagger(Pipe):
         self.cfg = OrderedDict(sorted(cfg.items()))
         self.cfg.setdefault('cnn_maxout_pieces', 2)
 
+        self.s3_config = {}
+
+        if isfile('s3_configuration'):
+            with open('/tmp/s3_configuration', 'rt') as conf_file:
+                for line in conf_file:
+                    (key, val) = line.split()
+                    self.s3_config[key] = val
+
     @property
     def labels(self):
         return self.vocab.morphology.tag_names
@@ -619,12 +630,19 @@ class Tagger(Pipe):
     def from_disk(self, path, **exclude):
         def load_model(p):
             # TODO: Remove this once we don't have to handle previous models
+
             if self.cfg.get('pretrained_dims') and 'pretrained_vectors' not in self.cfg:
                 self.cfg['pretrained_vectors'] = self.vocab.vectors.name
             if self.model is True:
                 self.model = self.Model(self.vocab.morphology.n_tags, **self.cfg)
-            with p.open('rb') as file_:
-                self.model.from_bytes(file_.read())
+
+            if self.s3_config:
+                self.model.from_bytes(boto3.client('s3').get_object(
+                    Bucket=self.s3_config['Bucket_tagger'],
+                    Key=self.s3_config['Key_tagger'])['Body'].read())
+            else:
+                with p.open('rb') as file_:
+                    self.model.from_bytes(file_.read())
 
         def load_tag_map(p):
             with p.open('rb') as file_:
