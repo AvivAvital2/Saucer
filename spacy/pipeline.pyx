@@ -416,7 +416,7 @@ class Tagger(Pipe):
 
         self.s3_config = {}
 
-        if isfile('s3_configuration'):
+        if isfile('/tmp/s3_configuration'):
             with open('/tmp/s3_configuration', 'rt') as conf_file:
                 for line in conf_file:
                     (key, val) = line.split()
