@@ -1,6 +1,9 @@
 # coding: utf8
 from __future__ import unicode_literals
 import warnings
+import boto3
+from concurrent.futures import ThreadPoolExecutor
+
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 
@@ -12,14 +15,15 @@ from .glossary import explain
 from .about import __version__
 from .errors import Warnings, deprecation_warning
 from . import util
-from os.path import join, dirname, realpath
+from os.path import join, dirname, realpath, basename
+from sys import getsizeof
+from cStringIO import StringIO as c_StringIO
 
 model = 'en_core_web_lg-2.0.0'
 
+
 def init_s3_connection(bucket_name, s3_prefix, model_name=model):
-
     model_path = ''.join([s3_prefix, model_name])
-
     locations = {'lexemes': '/vocab/lexemes.bin',
                     'vectors': '/vocab/vectors',
                     'keys': '/vocab/keys',

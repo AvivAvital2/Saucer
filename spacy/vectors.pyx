@@ -405,8 +405,11 @@ cdef class Vectors:
                     Fileobj=aws_data
                 )
 
-                self.data = xp.lib.npyio.format.read_array(c_StringIO(aws_data.getvalue()))
+                aws_array = c_StringIO(aws_data.getvalue())
                 aws_data.close()
+                del aws_data
+                self.data = xp.lib.npyio.format.read_array(aws_array)
+                del aws_array
 
             elif path.exists():
                 self.data = xp.load(str(path))

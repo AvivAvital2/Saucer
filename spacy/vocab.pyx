@@ -401,11 +401,13 @@ cdef class Vocab:
                 Key=self.s3_config['Key_lexemes'],
                 Fileobj=aws_data)
 
-            self.lexemes_from_bytes(aws_data.read())
+            self.lexemes_from_bytes(aws_data.getvalue())
 
-            self.strings.from_bytes(self.aws_grabber.get_object(
-                Bucket=self.s3_config['Bucket_strings'],
-                Key=self.s3_config['Key_strings'])['Body'].read())
+            # self.strings.from_bytes(self.aws_grabber.get_object(
+            #     Bucket=self.s3_config['Bucket_strings'],
+            #     Key=self.s3_config['Key_strings'])['Body'].read())
+
+            del aws_data
 
         else:
             path = util.ensure_path(path)
