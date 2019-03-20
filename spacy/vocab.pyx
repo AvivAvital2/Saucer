@@ -402,10 +402,13 @@ cdef class Vocab:
                 Fileobj=aws_data)
 
             self.lexemes_from_bytes(aws_data.getvalue())
+            del aws_data
+            aws_data = c_StringIO()
 
-            # self.strings.from_bytes(self.aws_grabber.get_object(
-            #     Bucket=self.s3_config['Bucket_strings'],
-            #     Key=self.s3_config['Key_strings'])['Body'].read())
+            self.aws_grabber.download_fileobj(
+                Bucket=self.s3_config['Bucket_strings'],
+                Key=self.s3_config['Key_strings'],
+                Fileobj=aws_data)
 
             del aws_data
 
