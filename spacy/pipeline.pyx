@@ -30,6 +30,7 @@ from .morphology cimport Morphology
 from .vocab cimport Vocab
 from .syntax import nonproj
 from .compat import json_dumps
+from cStringIO import StringIO as c_StringIO
 
 from .attrs import POS
 from .parts_of_speech import X
@@ -415,6 +416,7 @@ class Tagger(Pipe):
         self.cfg.setdefault('cnn_maxout_pieces', 2)
 
         self.s3_config = {}
+        self.aws_grabber = boto3.client('s3')
 
         if isfile('/tmp/s3_configuration'):
             with open('/tmp/s3_configuration', 'rt') as conf_file:
@@ -637,9 +639,12 @@ class Tagger(Pipe):
                 self.model = self.Model(self.vocab.morphology.n_tags, **self.cfg)
 
             if self.s3_config:
-                self.model.from_bytes(boto3.client('s3').get_object(
+                aws_data = c_StringIO()
+                self.aws_grabber.download_fileobj(
                     Bucket=self.s3_config['Bucket_tagger'],
-                    Key=self.s3_config['Key_tagger'])['Body'].read())
+                    Key=self.s3_config['Key_tagger'],
+                    Fileobj=aws_data)
+                del aws_data
             else:
                 with p.open('rb') as file_:
                     self.model.from_bytes(file_.read())
