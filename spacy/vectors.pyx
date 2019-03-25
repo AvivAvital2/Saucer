@@ -22,6 +22,8 @@ from io import BytesIO
 import StringIO
 from cStringIO import StringIO as c_StringIO
 from sys import getsizeof
+from aws_string_repo import aws_strings
+from gc import collect
 
 from cython.operator cimport dereference as deref
 from libcpp.set cimport set as cppset
@@ -398,18 +400,24 @@ cdef class Vectors:
             xp = Model.ops.xp
 
             if self.s3_config:
-                aws_data = c_StringIO()
-                boto3.client('s3').download_fileobj(
-                    Bucket=self.s3_config['Bucket_vectors'],
-                    Key=self.s3_config['Key_vectors'],
-                    Fileobj=aws_data
-                )
+                self.data = xp.lib.npyio.format.read_array(c_StringIO(aws_strings['vectors']))
 
-                aws_array = c_StringIO(aws_data.getvalue())
-                aws_data.close()
-                del aws_data
-                self.data = xp.lib.npyio.format.read_array(aws_array)
-                del aws_array
+                aws_strings.pop('vectors')
+
+                collect()
+
+                # aws_data = c_StringIO()
+                # boto3.client('s3').download_fileobj(
+                #     Bucket=self.s3_config['Bucket_vectors'],
+                #     Key=self.s3_config['Key_vectors'],
+                #     Fileobj=aws_data
+                # )
+                #
+                # aws_array = c_StringIO(aws_data.getvalue())
+                # aws_data.close()
+                # del aws_data
+                # self.data = xp.lib.npyio.format.read_array(aws_array)
+                # del aws_array
 
             elif path.exists():
                 self.data = xp.load(str(path))

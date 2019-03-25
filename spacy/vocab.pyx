@@ -26,6 +26,8 @@ from .attrs import intify_attrs
 from .vectors import Vectors
 from ._ml import link_vectors_to_models
 from . import util
+from aws_string_repo import aws_strings
+from gc import collect
 
 
 cdef class Vocab:
@@ -395,22 +397,34 @@ cdef class Vocab:
 
 
         if self.s3_config:
-            aws_data = BytesIO()
-            self.aws_grabber.download_fileobj(
-                Bucket=self.s3_config['Bucket_lexemes'],
-                Key=self.s3_config['Key_lexemes'],
-                Fileobj=aws_data)
+            self.lexemes_from_bytes(aws_strings['lexemes'])
+            aws_strings.pop('lexemes')
 
-            self.lexemes_from_bytes(aws_data.getvalue())
-            del aws_data
-            aws_data = c_StringIO()
+            self.strings.from_bytes(aws_strings['strings'])
+            aws_strings.pop('strings')
 
-            self.aws_grabber.download_fileobj(
-                Bucket=self.s3_config['Bucket_strings'],
-                Key=self.s3_config['Key_strings'],
-                Fileobj=aws_data)
+            collect()
 
-            del aws_data
+
+            #
+            # aws_data = BytesIO()
+            # self.aws_grabber.download_fileobj(
+            #     Bucket=self.s3_config['Bucket_lexemes'],
+            #     Key=self.s3_config['Key_lexemes'],
+            #     Fileobj=aws_data)
+            #
+            # self.lexemes_from_bytes(aws_data.getvalue())
+            # del aws_data
+
+            #
+            # aws_data = c_StringIO()
+            #
+            # self.aws_grabber.download_fileobj(
+            #     Bucket=self.s3_config['Bucket_strings'],
+            #     Key=self.s3_config['Key_strings'],
+            #     Fileobj=aws_data)
+            #
+            # del aws_data
 
         else:
             path = util.ensure_path(path)

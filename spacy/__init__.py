@@ -2,7 +2,7 @@
 from __future__ import unicode_literals
 import warnings
 import boto3
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor,as_completed
 
 warnings.filterwarnings("ignore", message="numpy.dtype size changed")
 warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
@@ -18,22 +18,42 @@ from . import util
 from os.path import join, dirname, realpath, basename
 from sys import getsizeof
 from cStringIO import StringIO as c_StringIO
+from aws_string_repo import aws_strings
+from gc import collect
 
 model = 'en_core_web_lg-2.0.0'
 
 
+def get_fileobj(bucket_name, location, s3_path):
+    aws_data = c_StringIO()
+    client = boto3.session.Session().client('s3')
+    client.download_fileobj(
+            Bucket=bucket_name,
+            Key=s3_path,
+            Fileobj=aws_data
+        )
+    aws_strings[location] = aws_data.getvalue()
+    return
+
+
 def init_s3_connection(bucket_name, s3_prefix, model_name=model):
     model_path = ''.join([s3_prefix, model_name])
-    locations = {'lexemes': '/vocab/lexemes.bin',
-                    'vectors': '/vocab/vectors',
-                    'keys': '/vocab/keys',
-                    'strings': '/vocab/strings.json',
-                    'tagger': '/tagger/model'}
+
+    locations = {'lexemes': '/vocab/lexemes.bin', #123MB
+                 'vectors': '/vocab/vectors', #784MB
+                 'strings': '/vocab/strings.json', #22MB
+                 'tagger': '/tagger/model'} #11MB
 
     with open('/tmp/s3_configuration', 'w') as f:
         for bucket in locations.keys():
             f.write('Bucket_{0} {1}\n'.format(bucket, bucket_name))
             f.write('Key_{0} {1}\n'.format(bucket, ''.join([model_path,locations[bucket]])))
+
+    with ThreadPoolExecutor(max_workers=len(locations)) as executor:
+        future_to_aws_string = {executor.submit(get_fileobj, bucket_name, location, ''.join([model_path, locations[location]])): location for location in locations}
+        for future in as_completed(future_to_aws_string):
+            future_to_aws_string[future]
+            future.result()
 
 
 def load(name=join(dirname(realpath(__file__)),model), **overrides):

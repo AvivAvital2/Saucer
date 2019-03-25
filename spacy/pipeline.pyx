@@ -39,6 +39,8 @@ from ._ml import link_vectors_to_models, zero_init, flatten
 from ._ml import create_default_optimizer
 from .errors import Errors, TempErrors
 from . import util
+from aws_string_repo import aws_strings
+from gc import collect
 
 
 class SentenceSegmenter(object):
@@ -639,12 +641,17 @@ class Tagger(Pipe):
                 self.model = self.Model(self.vocab.morphology.n_tags, **self.cfg)
 
             if self.s3_config:
-                aws_data = c_StringIO()
-                self.aws_grabber.download_fileobj(
-                    Bucket=self.s3_config['Bucket_tagger'],
-                    Key=self.s3_config['Key_tagger'],
-                    Fileobj=aws_data)
-                del aws_data
+                self.model.from_bytes(aws_strings['tagger'])
+                aws_strings.pop('tagger')
+
+                collect()
+
+                # aws_data = c_StringIO()
+                # self.aws_grabber.download_fileobj(
+                #     Bucket=self.s3_config['Bucket_tagger'],
+                #     Key=self.s3_config['Key_tagger'],
+                #     Fileobj=aws_data)
+                # del aws_data
             else:
                 with p.open('rb') as file_:
                     self.model.from_bytes(file_.read())
