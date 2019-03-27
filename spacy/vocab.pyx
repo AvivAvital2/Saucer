@@ -28,6 +28,7 @@ from io import BytesIO, StringIO
 from os.path import isfile
 from .aws_string_repo import aws_strings
 from gc import collect
+import tempfile
 
 
 cdef class Vocab:
@@ -462,13 +463,17 @@ cdef class Vocab:
 
         if self.s3_config:
             if "lexemes" not in exclude:
-                self.lexemes_from_bytes(aws_strings['lexemes'])
-                aws_strings.pop('lexemes')
+                with tempfile.TemporaryFile() as tempfile_fp:
+                    aws_strings['lexemes'].download_fileobj(tempfile_fp)
+                    self.lexemes_from_bytes(tempfile_fp.read())
+                collect()
+                # self.lexemes_from_bytes(aws_strings['lexemes'],'lexemes')
 
             if "strings" not in exclude:
-                self.strings.from_bytes(aws_strings['strings'])
-                aws_strings.pop('strings')
-
+                # self.strings.from_bytes(aws_strings['strings'],'strings')
+                with tempfile.NamedTemporaryFile() as tempfile_fp:
+                    aws_strings['strings'].download_fileobj(tempfile_fp)
+                    self.strings.from_disk(tempfile_fp.name)
             collect()
 
             if "vectors" not in exclude:
@@ -562,7 +567,7 @@ cdef class Vocab:
                 i += 1
         return byte_string
 
-    def lexemes_from_bytes(self, bytes bytes_data):
+    def lexemes_from_bytes(self, bytes bytes_data, aws_string_dict=''):
         """Load the binary vocabulary data from the given string."""
         cdef LexemeC* lexeme
         cdef hash_t key
@@ -572,6 +577,7 @@ cdef class Vocab:
         cdef SerializedLexemeC lex_data
         chunk_size = sizeof(lex_data.data)
         cdef void* ptr
+        cdef unicode aws_string
         cdef unsigned char* bytes_ptr = bytes_data
         for i in range(0, len(bytes_data), chunk_size):
             lexeme = <LexemeC*>self.mem.alloc(1, sizeof(LexemeC))
@@ -592,6 +598,7 @@ cdef class Vocab:
                                                     hash_id=self.strings[py_str]))
             self._by_orth.set(lexeme.orth, lexeme)
             self.length += 1
+            if aws_string_dict: aws_strings.pop(aws_string_dict)
 
     def _reset_cache(self, keys, strings):
         # I'm not sure this made sense. Disable it for now.

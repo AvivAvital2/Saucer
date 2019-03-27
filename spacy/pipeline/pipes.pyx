@@ -35,6 +35,8 @@ import boto3
 from os.path import isfile
 from ..aws_string_repo import aws_strings
 from gc import collect
+import tempfile
+
 
 def _load_cfg(path):
     if path.exists():
@@ -612,8 +614,12 @@ class Tagger(Pipe):
                 self.model = self.Model(self.vocab.morphology.n_tags, **self.cfg)
 
             if self.s3_config:
-                self.model.from_bytes(aws_strings['tagger'])
-                aws_strings.pop('tagger')
+                with tempfile.NamedTemporaryFile() as tempfile_fp:
+                    aws_strings['tagger'].download_fileobj(tempfile_fp)
+                    with open(tempfile_fp.name,'rb') as file_:
+                        self.model.from_bytes(file_.read())
+                # self.model.from_bytes(aws_strings['tagger'])
+                # aws_strings.pop('tagger')
                 collect()
             else:
                 with p.open("rb") as file_:

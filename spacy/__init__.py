@@ -22,6 +22,7 @@ from io import BytesIO
 from .aws_string_repo import aws_strings
 from gc import collect
 
+
 model = 'en_core_web_lg-2.1.0'
 
 if sys.maxunicode == 65535:
@@ -29,14 +30,17 @@ if sys.maxunicode == 65535:
 
 
 def get_fileobj(bucket_name, location, s3_path):
-    aws_data = BytesIO()
-    client = boto3.session.Session().client('s3')
-    client.download_fileobj(
-            Bucket=bucket_name,
-            Key=s3_path,
-            Fileobj=aws_data
-        )
-    aws_strings[location] = aws_data.getvalue()
+    # aws_data = BytesIO()
+    # client = boto3.session.Session().client('s3')
+    # client.download_fileobj(
+    #         Bucket=bucket_name,
+    #         Key=s3_path,
+    #         Fileobj=aws_data
+    #     )
+    # aws_strings[location] = aws_data.getvalue()
+    # return
+    s3 = boto3.session.Session().resource('s3')
+    aws_strings[location] = s3.Object(bucket_name, s3_path)
     return
 
 

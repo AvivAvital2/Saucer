@@ -22,10 +22,11 @@ from . import util
 import boto3
 from os.path import isfile
 from io import BytesIO
-from io import BytesIO
+from io import StringIO
 from sys import getsizeof
 from .aws_string_repo import aws_strings
 from gc import collect
+import tempfile
 
 
 def unpickle_vectors(bytes_data):
@@ -438,8 +439,16 @@ cdef class Vectors:
         def load_vectors(path):
             xp = Model.ops.xp
             if self.s3_config:
-                self.data = xp.lib.npyio.format.read_array(BytesIO(aws_strings['vectors']))
-                aws_strings.pop('vectors')
+                with BytesIO() as aws_data:
+                    aws_strings['vectors'].download_fileobj(aws_data)
+                    aws_data.seek(0)
+                    self.data = xp.lib.npyio.format.read_array(aws_data)
+
+                # self.data = xp.lib.npyio.format.read_array(Stringaws_data.getvalue())
+                # del aws_data
+                # with tempfile.SpooledTemporaryFile() as tempfile_fp:
+                #     aws_strings['vectors'].download_fileobj(tempfile_fp)
+                #     self.data = xp.load(str(tempfile_fp.name))
                 collect()
             elif path.exists():
                 self.data = xp.load(str(path))
