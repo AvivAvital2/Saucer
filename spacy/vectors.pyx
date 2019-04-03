@@ -443,6 +443,7 @@ cdef class Vectors:
                     aws_strings['vectors'].download_fileobj(aws_data)
                     aws_data.seek(0)
                     self.data = xp.lib.npyio.format.read_array(aws_data)
+                    del aws_data
 
                 # self.data = xp.lib.npyio.format.read_array(Stringaws_data.getvalue())
                 # del aws_data
