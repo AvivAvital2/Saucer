@@ -5,3 +5,5 @@ include pyproject.toml
 include bin/spacy
 include spacy/aws_string_repo.py
 recursive-include spacy/en_core_web_lg-2.1.0 *
+recursive-include spacy/en_core_web_md-2.1.0 *
+recursive-include spacy/en_core_web_sm-2.1.0 *

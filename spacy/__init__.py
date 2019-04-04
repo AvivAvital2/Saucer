@@ -57,7 +57,10 @@ def init_s3_connection(bucket_name, s3_prefix, model_name=model):
             future.result()
 
 
-def load(name=join(dirname(realpath(__file__)),model), **overrides):
+def load(name=None, **overrides):
+    if not name:
+        global model
+        name=join(dirname(realpath(__file__)),model)
     depr_path = overrides.get("path")
     if depr_path not in (True, False, None):
         deprecation_warning(Warnings.W001.format(path=depr_path))
