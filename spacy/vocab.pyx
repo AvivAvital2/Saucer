@@ -1,39 +1,42 @@
 # coding: utf8
 # cython: profile=True
 from __future__ import unicode_literals
+from libc.string cimport memcpy
 
 import numpy
-import dill
-import boto3
-from cStringIO import StringIO as c_StringIO
-from io import BytesIO, StringIO
-from os.path import isfile
-
+import srsly
 from collections import OrderedDict
 from thinc.neural.util import get_array_module
+
 from .lexeme cimport EMPTY_LEXEME
 from .lexeme cimport Lexeme
-from .strings cimport hash_string
 from .typedefs cimport attr_t
 from .tokens.token cimport Token
-from .attrs cimport PROB, LANG, ORTH, TAG
+from .attrs cimport PROB, LANG, ORTH, TAG, POS
 from .structs cimport SerializedLexemeC
 
 from .compat import copy_reg, basestring_
 from .errors import Errors
 from .lemmatizer import Lemmatizer
-from .attrs import intify_attrs
+from .attrs import intify_attrs, NORM
 from .vectors import Vectors
 from ._ml import link_vectors_to_models
 from . import util
-from aws_string_repo import aws_strings
+
+import boto3
+from io import BytesIO, StringIO
+from os.path import isfile
+from .aws_string_repo import aws_strings
 from gc import collect
+import tempfile
 
 
 cdef class Vocab:
     """A look-up table that allows you to access `Lexeme` objects. The `Vocab`
     instance also provides access to the `StringStore`, and owns underlying
     C-data that is shared between `Doc` objects.
+
+    DOCS: https://spacy.io/api/vocab
     """
     def __init__(self, lex_attr_getters=None, tag_map=None, lemmatizer=None,
                  strings=tuple(), oov_prob=-20., **deprecated_kwargs):
@@ -54,7 +57,6 @@ cdef class Vocab:
             lemmatizer = Lemmatizer({}, {}, {})
         self.cfg = {'oov_prob': oov_prob}
         self.mem = Pool()
-        self._by_hash = PreshMap()
         self._by_orth = PreshMap()
         self.strings = StringStore()
         self.length = 0
@@ -64,22 +66,33 @@ cdef class Vocab:
         self.lex_attr_getters = lex_attr_getters
         self.morphology = Morphology(self.strings, tag_map, lemmatizer)
         self.vectors = Vectors()
+
         self.s3_config = {}
         self.aws_grabber = boto3.client('s3')
 
         if isfile('/tmp/s3_configuration'):
-            with open('/tmp/s3_configuration','rt') as conf_file:
+            with open('/tmp/s3_configuration', 'rt') as conf_file:
                 for line in conf_file:
                     (key, val) = line.split()
                     self.s3_config[key] = val
 
+    @property
+    def lang(self):
+        langfunc = None
+        if self.lex_attr_getters:
+            langfunc = self.lex_attr_getters.get(LANG, None)
+        return langfunc("_") if langfunc else ""
 
-    property lang:
+    property writing_system:
+        """A dict with information about the language's writing system. To get
+        the data, we use the vocab.lang property to fetch the Language class.
+        If the Language class is not loaded, an empty dict is returned.
+        """
         def __get__(self):
-            langfunc = None
-            if self.lex_attr_getters:
-                langfunc = self.lex_attr_getters.get(LANG, None)
-            return langfunc('_') if langfunc else ''
+            if not util.lang_class_is_loaded(self.lang):
+                return {}
+            lang_class = util.get_lang_class(self.lang)
+            return dict(lang_class.Defaults.writing_system)
 
     def __len__(self):
         """The current number of lexemes stored.
@@ -104,11 +117,7 @@ cdef class Vocab:
             available bit will be chosen.
         RETURNS (int): The integer ID by which the flag value can be checked.
 
-        EXAMPLE:
-            >>> my_product_getter = lambda text: text in ['spaCy', 'dislaCy']
-            >>> MY_PRODUCT = nlp.vocab.add_flag(my_product_getter)
-            >>> doc = nlp(u'I like spaCy')
-            >>> assert doc[2].check_flag(MY_PRODUCT) == True
+        DOCS: https://spacy.io/api/vocab#add_flag
         """
         if flag_id == -1:
             for bit in range(1, 64):
@@ -129,17 +138,17 @@ cdef class Vocab:
         `Lexeme` if necessary using memory acquired from the given pool. If the
         pool is the lexicon's own memory, the lexeme is saved in the lexicon.
         """
-        if string == u'':
+        if string == "":
             return &EMPTY_LEXEME
         cdef LexemeC* lex
-        cdef hash_t key = hash_string(string)
-        lex = <LexemeC*>self._by_hash.get(key)
+        cdef hash_t key = self.strings[string]
+        lex = <LexemeC*>self._by_orth.get(key)
         cdef size_t addr
         if lex != NULL:
-            if lex.orth != self.strings[string]:
+            assert lex.orth in self.strings
+            if lex.orth != key:
                 raise KeyError(Errors.E064.format(string=lex.orth,
-                                                  orth=self.strings[string],
-                                                  orth_id=string))
+                                                  orth=key, orth_id=string))
             return lex
         else:
             return self._new_lexeme(mem, string)
@@ -159,7 +168,6 @@ cdef class Vocab:
             return self._new_lexeme(mem, self.strings[orth])
 
     cdef const LexemeC* _new_lexeme(self, Pool mem, unicode string) except NULL:
-        cdef hash_t key
         if len(string) < 3 or self.length < 10000:
             mem = self.mem
         cdef bint is_oov = mem is not self.mem
@@ -180,14 +188,12 @@ cdef class Vocab:
                 elif value is not None:
                     Lexeme.set_struct_attr(lex, attr, value)
         if not is_oov:
-            key = hash_string(string)
-            self._add_lex_to_vocab(key, lex)
+            self._add_lex_to_vocab(lex.orth, lex)
         if lex == NULL:
             raise ValueError(Errors.E085.format(string=string))
         return lex
 
     cdef int _add_lex_to_vocab(self, hash_t key, const LexemeC* lex) except -1:
-        self._by_hash.set(key, <void*>lex)
         self._by_orth.set(lex.orth, <void*>lex)
         self.length += 1
 
@@ -196,21 +202,25 @@ cdef class Vocab:
 
         string (unicode): The ID string.
         RETURNS (bool) Whether the string has an entry in the vocabulary.
+
+        DOCS: https://spacy.io/api/vocab#contains
         """
         cdef hash_t int_key
         if isinstance(key, bytes):
-            int_key = hash_string(key.decode('utf8'))
+            int_key = self.strings[key.decode("utf8")]
         elif isinstance(key, unicode):
-            int_key = hash_string(key)
+            int_key = self.strings[key]
         else:
             int_key = key
-        lex = self._by_hash.get(int_key)
+        lex = self._by_orth.get(int_key)
         return lex is not NULL
 
     def __iter__(self):
         """Iterate over the lexemes in the vocabulary.
 
         YIELDS (Lexeme): An entry in the vocabulary.
+
+        DOCS: https://spacy.io/api/vocab#iter
         """
         cdef attr_t key
         cdef size_t addr
@@ -230,8 +240,10 @@ cdef class Vocab:
         RETURNS (Lexeme): The lexeme indicated by the given ID.
 
         EXAMPLE:
-            >>> apple = nlp.vocab.strings['apple']
-            >>> assert nlp.vocab[apple] == nlp.vocab[u'apple']
+            >>> apple = nlp.vocab.strings["apple"]
+            >>> assert nlp.vocab[apple] == nlp.vocab[u"apple"]
+
+        DOCS: https://spacy.io/api/vocab#getitem
         """
         cdef attr_t orth
         if isinstance(id_or_string, unicode):
@@ -252,9 +264,16 @@ cdef class Vocab:
             token.lex = lex
             if TAG in props:
                 self.morphology.assign_tag(token, props[TAG])
+            elif POS in props:
+                # Don't allow POS to be set without TAG -- this causes problems,
+                # see #1773
+                props.pop(POS)
             for attr_id, value in props.items():
                 Token.set_struct_attr(token, attr_id, value)
-                Lexeme.set_struct_attr(lex, attr_id, value)
+                # NORM is the only one that overlaps between the two
+                # (which is maybe not great?)
+                if attr_id != NORM:
+                    Lexeme.set_struct_attr(lex, attr_id, value)
         return tokens
 
     @property
@@ -297,6 +316,8 @@ cdef class Vocab:
             `(string, score)` tuples, where `string` is the entry the removed
             word was mapped to, and `score` the similarity score between the
             two words.
+
+        DOCS: https://spacy.io/api/vocab#prune_vectors
         """
         xp = get_array_module(self.vectors.data)
         # Make prob negative so it sorts by rank ascending
@@ -304,16 +325,12 @@ cdef class Vocab:
         priority = [(-lex.prob, self.vectors.key2row[lex.orth], lex.orth)
                     for lex in self if lex.orth in self.vectors.key2row]
         priority.sort()
-        indices = xp.asarray([i for (prob, i, key) in priority], dtype='i')
-        keys = xp.asarray([key for (prob, i, key) in priority], dtype='uint64')
-
+        indices = xp.asarray([i for (prob, i, key) in priority], dtype="i")
+        keys = xp.asarray([key for (prob, i, key) in priority], dtype="uint64")
         keep = xp.ascontiguousarray(self.vectors.data[indices[:nr_row]])
         toss = xp.ascontiguousarray(self.vectors.data[indices[nr_row:]])
-
         self.vectors = Vectors(data=keep, keys=keys)
-
         syn_keys, syn_rows, scores = self.vectors.most_similar(toss, batch_size=batch_size)
-
         remap = {}
         for i, key in enumerate(keys[nr_row:]):
             self.vectors.add(key, row=syn_rows[i])
@@ -324,7 +341,7 @@ cdef class Vocab:
         link_vectors_to_models(self)
         return remap
 
-    def get_vector(self, orth):
+    def get_vector(self, orth, minn=None, maxn=None):
         """Retrieve a vector for a word in the vocabulary. Words can be looked
         up by string or int ID. If no vectors data is loaded, ValueError is
         raised.
@@ -332,17 +349,54 @@ cdef class Vocab:
         RETURNS (numpy.ndarray): A word vector. Size
             and shape determined by the `vocab.vectors` instance. Usually, a
             numpy ndarray of shape (300,) and dtype float32.
+
+        DOCS: https://spacy.io/api/vocab#get_vector
         """
         if isinstance(orth, basestring_):
             orth = self.strings.add(orth)
+        word = self[orth].orth_
         if orth in self.vectors.key2row:
             return self.vectors[orth]
-        else:
-            return numpy.zeros((self.vectors_length,), dtype='f')
+        # Assign default ngram limits to minn and maxn which is the length of the word.
+        if minn is None:
+            minn = len(word)
+        if maxn is None:
+            maxn = len(word)
+        vectors = numpy.zeros((self.vectors_length,), dtype="f")
+        # Fasttext's ngram computation taken from
+        # https://github.com/facebookresearch/fastText
+        ngrams_size = 0;
+        for i in range(len(word)):
+            ngram = ""
+            if (word[i] and 0xC0) == 0x80:
+                continue
+            n = 1
+            j = i
+            while (j < len(word) and n <= maxn):
+                if n > maxn:
+                    break
+                ngram += word[j]
+                j = j + 1
+                while (j < len(word) and (word[j] and 0xC0) == 0x80):
+                    ngram += word[j]
+                    j = j + 1
+                if (n >= minn and not (n == 1 and (i == 0 or j == len(word)))):
+                    if self.strings[ngram] in self.vectors.key2row:
+                        vectors = numpy.add(self.vectors[self.strings[ngram]],vectors)
+                        ngrams_size += 1
+                n = n + 1
+        if ngrams_size > 0:
+            vectors = vectors * (1.0/ngrams_size)
+        return vectors
 
     def set_vector(self, orth, vector):
         """Set a vector for a word in the vocabulary. Words can be referenced
         by string or int ID.
+
+        orth (int / unicode): The word.
+        vector (numpy.ndarray[ndim=1, dtype='float32']): The vector to set.
+
+        DOCS: https://spacy.io/api/vocab#set_vector
         """
         if isinstance(orth, basestring_):
             orth = self.strings.add(orth)
@@ -353,97 +407,101 @@ cdef class Vocab:
             else:
                 width = self.vectors.shape[1]
             self.vectors.resize((new_rows, width))
-            lex = self[orth] # Adds worse to vocab
+            lex = self[orth]  # Adds words to vocab
             self.vectors.add(orth, vector=vector)
         self.vectors.add(orth, vector=vector)
 
     def has_vector(self, orth):
         """Check whether a word has a vector. Returns False if no vectors have
-        been loaded. Words can be looked up by string or int ID."""
+        been loaded. Words can be looked up by string or int ID.
+
+        orth (int / unicode): The word.
+        RETURNS (bool): Whether the word has a vector.
+
+        DOCS: https://spacy.io/api/vocab#has_vector
+        """
         if isinstance(orth, basestring_):
             orth = self.strings.add(orth)
         return orth in self.vectors
 
-    def to_disk(self, path, **exclude):
+    def to_disk(self, path, exclude=tuple(), **kwargs):
         """Save the current state to a directory.
 
         path (unicode or Path): A path to a directory, which will be created if
-            it doesn't exist. Paths may be either strings or Path-like objects.
+            it doesn't exist.
+        exclude (list): String names of serialization fields to exclude.
+
+        DOCS: https://spacy.io/api/vocab#to_disk
         """
         path = util.ensure_path(path)
         if not path.exists():
             path.mkdir()
-        self.strings.to_disk(path / 'strings.json')
-
-        if self.s3_config:
-            self.aws_grabber.put_object(Bucket=self.s3_config['Bucket_lexemes'],
-                                          Key=self.s3_config['Key_lexemes'],
-                                          Body=c_StringIO(self.lexemes_to_bytes()).read()
-                                        )
-        else:
-            with (path / 'lexemes.bin').open('wb') as file_:
+        setters = ["strings", "lexemes", "vectors"]
+        exclude = util.get_serialization_exclude(setters, exclude, kwargs)
+        if "strings" not in exclude:
+            self.strings.to_disk(path / "strings.json")
+        if "lexemes" not in exclude:
+            with (path / "lexemes.bin").open("wb") as file_:
                 file_.write(self.lexemes_to_bytes())
-        if self.vectors is not None:
+        if "vectors" not in "exclude" and self.vectors is not None:
             self.vectors.to_disk(path)
 
-    def from_disk(self, path, **exclude):
+    def from_disk(self, path, exclude=tuple(), **kwargs):
         """Loads state from a directory. Modifies the object in place and
         returns it.
 
-        path (unicode or Path): A path to a directory. Paths may be either
-            strings or `Path`-like objects.
+        path (unicode or Path): A path to a directory.
+        exclude (list): String names of serialization fields to exclude.
         RETURNS (Vocab): The modified `Vocab` object.
+
+        DOCS: https://spacy.io/api/vocab#to_disk
         """
 
+        path = util.ensure_path(path)
+        getters = ["strings", "lexemes", "vectors"]
+        exclude = util.get_serialization_exclude(getters, exclude, kwargs)
 
         if self.s3_config:
-            self.lexemes_from_bytes(aws_strings['lexemes'])
-            aws_strings.pop('lexemes')
+            if "lexemes" not in exclude:
+                with tempfile.TemporaryFile() as tempfile_fp:
+                    aws_strings['lexemes'].download_fileobj(tempfile_fp)
+                    self.lexemes_from_bytes(tempfile_fp.read())
+                collect()
+                # self.lexemes_from_bytes(aws_strings['lexemes'],'lexemes')
 
-            self.strings.from_bytes(aws_strings['strings'])
-            aws_strings.pop('strings')
-
+            if "strings" not in exclude:
+                # self.strings.from_bytes(aws_strings['strings'],'strings')
+                with tempfile.NamedTemporaryFile() as tempfile_fp:
+                    aws_strings['strings'].download_fileobj(tempfile_fp)
+                    self.strings.from_disk(tempfile_fp.name)
             collect()
 
-
-            #
-            # aws_data = BytesIO()
-            # self.aws_grabber.download_fileobj(
-            #     Bucket=self.s3_config['Bucket_lexemes'],
-            #     Key=self.s3_config['Key_lexemes'],
-            #     Fileobj=aws_data)
-            #
-            # self.lexemes_from_bytes(aws_data.getvalue())
-            # del aws_data
-
-            #
-            # aws_data = c_StringIO()
-            #
-            # self.aws_grabber.download_fileobj(
-            #     Bucket=self.s3_config['Bucket_strings'],
-            #     Key=self.s3_config['Key_strings'],
-            #     Fileobj=aws_data)
-            #
-            # del aws_data
-
+            if "vectors" not in exclude:
+                if self.vectors is not None:
+                    self.vectors.from_disk(path, exclude=["strings"])
+                if self.vectors.name is not None:
+                        link_vectors_to_models(self)
+                return self
         else:
-            path = util.ensure_path(path)
-            self.strings.from_disk(path / 'strings.json')
-
-            with (path / 'lexemes.bin').open('rb') as file_:
-                self.lexemes_from_bytes(file_.read())
-
-        if self.vectors is not None:
-            self.vectors.from_disk(path, exclude='strings.json')
-        if self.vectors.name is not None:
-            link_vectors_to_models(self)
+            if "strings" not in exclude:
+                self.strings.from_disk(path / "strings.json")  # TODO: add exclude?
+            if "lexemes" not in exclude:
+                with (path / "lexemes.bin").open("rb") as file_:
+                    self.lexemes_from_bytes(file_.read())
+        if "vectors" not in exclude:
+            if self.vectors is not None:
+                self.vectors.from_disk(path, exclude=["strings"])
+            if self.vectors.name is not None:
+                link_vectors_to_models(self)
         return self
 
-    def to_bytes(self, **exclude):
+    def to_bytes(self, exclude=tuple(), **kwargs):
         """Serialize the current state to a binary string.
 
-        **exclude: Named attributes to prevent from being serialized.
+        exclude (list): String names of serialization fields to exclude.
         RETURNS (bytes): The serialized form of the `Vocab` object.
+
+        DOCS: https://spacy.io/api/vocab#to_bytes
         """
         def deserialize_vectors():
             if self.vectors is None:
@@ -452,29 +510,34 @@ cdef class Vocab:
                 return self.vectors.to_bytes()
 
         getters = OrderedDict((
-            ('strings', lambda: self.strings.to_bytes()),
-            ('lexemes', lambda: self.lexemes_to_bytes()),
-            ('vectors', deserialize_vectors)
+            ("strings", lambda: self.strings.to_bytes()),
+            ("lexemes", lambda: self.lexemes_to_bytes()),
+            ("vectors", deserialize_vectors)
         ))
+        exclude = util.get_serialization_exclude(getters, exclude, kwargs)
         return util.to_bytes(getters, exclude)
 
-    def from_bytes(self, bytes_data, **exclude):
+    def from_bytes(self, bytes_data, exclude=tuple(), **kwargs):
         """Load state from a binary string.
 
         bytes_data (bytes): The data to load from.
-        **exclude: Named attributes to prevent from being loaded.
+        exclude (list): String names of serialization fields to exclude.
         RETURNS (Vocab): The `Vocab` object.
+
+        DOCS: https://spacy.io/api/vocab#from_bytes
         """
         def serialize_vectors(b):
             if self.vectors is None:
                 return None
             else:
                 return self.vectors.from_bytes(b)
+
         setters = OrderedDict((
-            ('strings', lambda b: self.strings.from_bytes(b)),
-            ('lexemes', lambda b: self.lexemes_from_bytes(b)),
-            ('vectors', lambda b: serialize_vectors(b))
+            ("strings", lambda b: self.strings.from_bytes(b)),
+            ("lexemes", lambda b: self.lexemes_from_bytes(b)),
+            ("vectors", lambda b: serialize_vectors(b))
         ))
+        exclude = util.get_serialization_exclude(setters, exclude, kwargs)
         util.from_bytes(bytes_data, setters, exclude)
         if self.vectors.name is not None:
             link_vectors_to_models(self)
@@ -486,15 +549,15 @@ cdef class Vocab:
         cdef LexemeC* lexeme = NULL
         cdef SerializedLexemeC lex_data
         cdef int size = 0
-        for key, addr in self._by_hash.items():
+        for key, addr in self._by_orth.items():
             if addr == 0:
                 continue
             size += sizeof(lex_data.data)
-        byte_string = b'\0' * size
+        byte_string = b"\0" * size
         byte_ptr = <unsigned char*>byte_string
         cdef int j
         cdef int i = 0
-        for key, addr in self._by_hash.items():
+        for key, addr in self._by_orth.items():
             if addr == 0:
                 continue
             lexeme = <LexemeC*>addr
@@ -504,7 +567,7 @@ cdef class Vocab:
                 i += 1
         return byte_string
 
-    def lexemes_from_bytes(self, bytes bytes_data):
+    def lexemes_from_bytes(self, bytes bytes_data, aws_string_dict=''):
         """Load the binary vocabulary data from the given string."""
         cdef LexemeC* lexeme
         cdef hash_t key
@@ -514,13 +577,17 @@ cdef class Vocab:
         cdef SerializedLexemeC lex_data
         chunk_size = sizeof(lex_data.data)
         cdef void* ptr
+        cdef unicode aws_string
         cdef unsigned char* bytes_ptr = bytes_data
         for i in range(0, len(bytes_data), chunk_size):
             lexeme = <LexemeC*>self.mem.alloc(1, sizeof(LexemeC))
             for j in range(sizeof(lex_data.data)):
                 lex_data.data[j] = bytes_ptr[i+j]
             Lexeme.c_from_bytes(lexeme, lex_data)
-
+            prev_entry = self._by_orth.get(lexeme.orth)
+            if prev_entry != NULL:
+                memcpy(prev_entry, lexeme, sizeof(LexemeC))
+                continue
             ptr = self.strings._map.get(lexeme.orth)
             if ptr == NULL:
                 continue
@@ -529,17 +596,13 @@ cdef class Vocab:
                 raise ValueError(Errors.E086.format(string=py_str,
                                                     orth_id=lexeme.orth,
                                                     hash_id=self.strings[py_str]))
-            key = hash_string(py_str)
-            self._by_hash.set(key, lexeme)
             self._by_orth.set(lexeme.orth, lexeme)
             self.length += 1
+            if aws_string_dict: aws_strings.pop(aws_string_dict)
 
     def _reset_cache(self, keys, strings):
-        for k in keys:
-            del self._by_hash[k]
-
-        if len(strings) != 0:
-            self._by_orth = PreshMap()
+        # I'm not sure this made sense. Disable it for now.
+        raise NotImplementedError
 
 
 def pickle_vocab(vocab):
@@ -548,7 +611,7 @@ def pickle_vocab(vocab):
     morph = vocab.morphology
     length = vocab.length
     data_dir = vocab.data_dir
-    lex_attr_getters = dill.dumps(vocab.lex_attr_getters)
+    lex_attr_getters = srsly.pickle_dumps(vocab.lex_attr_getters)
     lexemes_data = vocab.lexemes_to_bytes()
     return (unpickle_vocab,
             (sstore, vectors, morph, data_dir, lex_attr_getters, lexemes_data, length))
@@ -562,7 +625,7 @@ def unpickle_vocab(sstore, vectors, morphology, data_dir,
     vocab.strings = sstore
     vocab.morphology = morphology
     vocab.data_dir = data_dir
-    vocab.lex_attr_getters = dill.loads(lex_attr_getters)
+    vocab.lex_attr_getters = srsly.pickle_loads(lex_attr_getters)
     vocab.lexemes_from_bytes(lexemes_data)
     vocab.length = length
     return vocab

@@ -1,5 +1,5 @@
-Saucer is a simple fork from spaCy NLP framework with S3 support for model storage. 
-Created mainly to fit spaCy and its en_core_web_lg-2.0.0 model in AWS Lambda.
+Saucer is a simple fork from spaCy NLP framework (v2.1.0) with S3 support for model storage. 
+Created mainly to fit spaCy and its en_core_web_lg-2.1.0 model in AWS Lambda.
 Saucer was made to "live" within Lambda, heavily relying on S3 to load related files.
 Note that a slow connection can greatly affect the performance
 
@@ -7,8 +7,9 @@ Quite similar to the native spaCy example:
 ```python
 import spacy
 
-#Initialize connection with S3, where prefix contains 'en_core_web_lg-2.0.0'
-spacy.init_s3_connection('s3_bucket', 's3_prefix')
+#Initialize connection with S3, where prefix contains 'en_core_web_xx-2.1.0'
+#Currently supporting sm, md and lg as models
+spacy.init_s3_connection('s3_bucket', 's3_prefix', 'en_core_web_lg-2.1.0')
 spacy.util.set_data_path()
 nlp = spacy.load()
 
@@ -32,3 +33,4 @@ doc2 = nlp(u"such disgusting fries")
 similarity = doc1.similarity(doc2)
 print(doc1.text, doc2.text, similarity)
 ```
+
