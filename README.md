@@ -4,7 +4,7 @@ Saucer was made to "live" within Lambda, heavily relying on S3 to load related f
 Note that in case executed locally, a slow connection can greatly affect the performance<br>
 
 Below example is quite similar to the native spaCy example.<br>
-In addition the new init_s3_connection(), note set_data_path() and load() both use default locations.
+In addition the new *init_s3_connection()*, note *set_data_path()* and *load()* both use default locations.
 ```python
 import spacy
 
