@@ -35,3 +35,8 @@ similarity = doc1.similarity(doc2)
 print(doc1.text, doc2.text, similarity)
 ```
 
+To use:
+1. Download the desired en_core_web model (either [SM](https://github.com/explosion/spacy-models/releases/tag/en_core_web_sm-2.1.0), [MD](https://github.com/explosion/spacy-models/releases/tag/en_core_web_md-2.1.0) or [LG](https://github.com/explosion/spacy-models/releases/tag/en_core_web_lg-2.1.0))
+1. Extract the model 
+1. Upload the entire __en_core_web_xx-2.1.0/en_core_web_xx/en_core_web_xx-2.1.0__ directory to S3, where xx is the model you selected earlier
+1. Specify the bucket, prefix and your model using spacy.init_s3_connection as in the example above.
