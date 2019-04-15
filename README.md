@@ -3,7 +3,8 @@ Created mainly to fit spaCy and its en_core_web_lg-2.1.0 model in AWS Lambda.<br
 Saucer was made to "live" within Lambda, heavily relying on S3 to load related files.<br>
 Note that in case executed locally, a slow connection can greatly affect the performance<br>
 
-Quite similar to the native spaCy example:
+Below example is quite similar to the native spaCy example.<br>
+In addition the new init_s3_connection(), note set_data_path() and load() both use default locations.
 ```python
 import spacy
 
