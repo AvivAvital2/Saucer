@@ -40,3 +40,6 @@ To use:
 1. Extract the model 
 1. Upload the entire __en_core_web_xx-2.1.0/en_core_web_xx/en_core_web_xx-2.1.0__ directory to S3, where xx is the model you selected earlier
 1. Specify the bucket, prefix and your model using spacy.init_s3_connection as in the example above.
+
+__spaCy vs Saucer in Lambda - Benchmark__<br>
+![spaCy vs Saucer in Lambda - Benchmark](https://github.com/AvivAvital2/Saucer/blob/master/image.png)
