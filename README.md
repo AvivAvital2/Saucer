@@ -1,5 +1,5 @@
 Saucer is a simple wrapper for spaCy NLP framework (v2.1.3) with S3 support for model storage. <br>
-Created mainly to fit spaCy and its en_core_web_lg model in AWS Lambda.<br>
+Created mainly to fit spaCy and its __en_core_web_lg__ model in AWS Lambda.<br>
 Saucer was made to "live" within Lambda, heavily relying on S3 to load related files.<br>
 Note that in case executed locally, a slow connection can greatly affect the performance<br>
 
